@@ -1,107 +1,64 @@
-ACLOCAL_AMFLAGS = -I m4
+SUBDIRS=                             \
+ .                                   \
+ eventscheduler
 
-SUBDIRS= src                            \
-         include/emane                  \
-         scripts                        \
-         scripts/doc                    \
-         dtd                            \
-         doc                            \
-         schema                         \
-         test
+lib_LTLIBRARIES = libtdmabase.la
 
-edit = sed                                               \
-       -e 's|@VERSION[@]|$(VERSION)|g'                   \
-       -e 's|@DATE_RFC2822[@]|$(DATE_RFC2822)|g'         \
-       -e 's|@DISTRIB_CODENAME[@]|$(DISTRIB_CODENAME)|g' \
-       -e 's|@PYTHON[@]|$(PYTHON)|g'                     \
-       -e 's|@PYTHON_MAJOR_VERSION[@]|$(PYTHON_MAJOR_VERSION)|g'
+libtdmabase_la_CPPFLAGS=             \
+ -I@top_srcdir@/include              \
+ $(AM_CPPFLAGS)                      \
+ $(libemane_CFLAGS)
 
-cleantar:
-	@(rm -f emane*.tar.gz)
+libtdmabase_la_LIBADD=                       \
+ $(libuuid_LIBS)                             \
+ $(libxml2_LIBS)                             \
+ $(protobuf_LIBS)                            \
+ @top_srcdir@/src/libemane/.libs/libemane.la
 
-if HAVE_RPMBUILD
+libtdmabase_la_LDFLAGS=              \
+ $(AM_LDFLAGS)                       \
+ -avoid-version
 
-rpm: emane.spec dist-gzip
-	mkdir -p .rpmbuild/BUILD \
-	.rpmbuild/SPECS \
-	.rpmbuild/SOURCES \
-	.rpmbuild/SRPMS \
-	.rpmbuild/RPMS/noarch \
-	.rpmbuild/tmp
-	cp -f $(PACKAGE)-$(VERSION).tar.gz .rpmbuild/SOURCES
-	rpmbuild --clean -ba $(top_srcdir)/$(PACKAGE).spec \
-    --define "_topdir $$PWD/.rpmbuild" \
-    --define "_tmppath $$PWD/.rpmbuild/tmp" \
-    --with python$(PYTHON_MAJOR_VERSION)
-	@echo "============================================================"
-	@echo "RPMs located in .rpmbuild/RPMS and .rpmbuild/SRPMS"
+libtdmabase_la_SOURCES =             \
+ aggregationstatuspublisher.cc       \
+ basemodel.cc                        \
+ basemodelimpl.cc                    \
+ basicqueuemanager.cc                \
+ packetstatuspublisherimpl.cc        \
+ pormanager.cc                       \
+ queue.cc                            \
+ queuestatuspublisher.cc             \
+ receivemanager.cc                   \
+ slotstatustablepublisher.cc         \
+ txslotinfosformatter.cc             \
+ downstreamqueue.cc					 \
+ aggregationstatuspublisher.h        \
+ basemodelimpl.h                     \
+ basemodelmessage.h                  \
+ basemodelmessage.inl                \
+ packetstatuspublisherimpl.h         \
+ pormanager.h                        \
+ priority.h                          \
+ queue.h                             \
+ queuestatuspublisher.h              \
+ receivemanager.h                    \
+ slotstatustablepublisher.h          \
+ txslotinfosformatter.h				 \
+ downstreamqueue.h
 
-endif
+nodist_libtdmabase_la_SOURCES =      \
+ tdmabasemodelmessage.pb.cc          \
+ tdmabasemodelmessage.pb.h
 
-clean-local: cleantar
-	-rm -rf .rpmbuild
-	-rm -rf .debbuild
-	-rm -f emane.spec
+EXTRA_DIST=                          \
+ tdmabasemodelmessage.proto          \
+ tdmabasemodelpcr.xml
 
-emane.spec: emane.spec.in
-	if test -f $@; then chmod u+w $@; fi
-	$(edit) $< > $@
-	chmod g-w,u-w $@
+BUILT_SOURCES =                      \
+ $(nodist_libtdmabase_la_SOURCES)
 
-if HAVE_DEB
+clean-local:
+	rm -f $(BUILT_SOURCES)
 
-JOBS=`getconf _NPROCESSORS_ONLN`
-
-deb: dist-gzip 
-	mkdir -p .debbuild
-	cp -f $(PACKAGE)-$(VERSION).tar.gz .debbuild
-	cd .debbuild && tar xzf $(PACKAGE)-$(VERSION).tar.gz
-	$(edit) .debbuild/$(PACKAGE)-$(VERSION)/debian/changelog.in > \
-          .debbuild/$(PACKAGE)-$(VERSION)/debian/changelog
-	$(edit) .debbuild/$(PACKAGE)-$(VERSION)/debian/rules.in > \
-          .debbuild/$(PACKAGE)-$(VERSION)/debian/rules
-	$(edit) .debbuild/$(PACKAGE)-$(VERSION)/debian/control.in > \
-          .debbuild/$(PACKAGE)-$(VERSION)/debian/control
-	sed -i s/python2-emane/python-emane/g .debbuild/$(PACKAGE)-$(VERSION)/debian/control
-	cd .debbuild/$(PACKAGE)-$(VERSION) && dpkg-buildpackage -F -us -uc -j$(JOBS)
-	@echo "============================================================"
-	@echo "debs located in .debbuild"
-
-endif
-
-EXTRA_DIST =         \
- AUTHORS             \
- COPYING             \
- Copyright           \
- ChangeLog           \
- NEWS                \
- emane.spec.in       \
- SPONSOR             \
- README.md           \
- debian              \
- autogen.sh
-
-install-exec-hook:	
-	$(mkinstalldirs) $(DESTDIR)$(datadir)/$(PACKAGE)/manifest
-	./scripts/emanegenmanifests.sh $(DESTDIR)$(datadir)/$(PACKAGE)/manifest
-
-uninstall-local:
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/bypassmaclayer.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/bypassphylayer.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/commeffectshim.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/eelgenerator.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/emanephy.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/eventagentmanager.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/eventgeneratormanager.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/gpsdlocationagent.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/ieee80211abgmaclayer.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/nemmanager.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/phyapitestshim.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/rfpipemaclayer.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/tdmaeventschedulerradiomodel.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/timinganalysisshim.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/transportmanager.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/transraw.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/transvirtual.xml
-	rm -f $(DESTDIR)$(datadir)/$(PACKAGE)/manifest/universalphylayer.xml
-
+tdmabasemodelmessage.pb.cc tdmabasemodelmessage.pb.h: tdmabasemodelmessage.proto
+	protoc -I=. --cpp_out=. $<
