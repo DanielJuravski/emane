@@ -76,9 +76,21 @@ namespace EMANE
 
         QueueInfos getPacketQueueInfo() const override;
 
+        //for latency delay dev
+        //every time that there is "dequeued" action from one of the queues,
+        //calculate DELTA of the clock with the last dequeued action. 
+        double getQsDelay() override;
+        void setDelayStat();
+        double getLastDelay();
+
       private:
         class Implementation;
         std::unique_ptr<Implementation> pImpl_;
+
+        //for latency delay dev
+        double lastDelay = 0;
+        TimePoint tpnow = Clock::now();
+        TimePoint tplast = Clock::now();
       };
     }
   }
