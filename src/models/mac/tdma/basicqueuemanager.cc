@@ -32,6 +32,7 @@
 
 #include "emane/models/tdma/basicqueuemanager.h"
 #include "emane/configureexception.h"
+#include "emane/types.h"
 #include "queue.h"
 #include "queuestatuspublisher.h"
 
@@ -385,6 +386,9 @@ EMANE::Models::TDMA::BasicQueueManager::dequeue(std::uint8_t u8QueueIndex,
                                     components,
                                     PacketStatusPublisher::OutboundAction::ACCEPT_GOOD);
 
+  //update last dequeued time
+  setDelayStat();
+
   return std::make_tuple(std::move(components),totalLength);
 }
 
@@ -403,4 +407,31 @@ EMANE::Models::TDMA::BasicQueueManager::getPacketQueueInfo() const
     }
 
   return queueInfos;
+}
+
+double EMANE::Models::TDMA::BasicQueueManager::getQsDelay()
+{
+  double delay = getLastDelay();
+  LOGGER_STANDARD_LOGGING(pPlatformService_->logService(),
+                          DEBUG_LEVEL,
+                          "MACI %03hu TDMA::BasicQueueManager::%s latency-delay = %lf",
+                          id_,
+                          __func__,
+                          delay);
+  return delay;
+}
+void EMANE::Models::TDMA::BasicQueueManager::setDelayStat()
+{
+  tpnow = Clock::now();
+  //calc last delay time
+  auto microseconds = std::chrono::duration_cast<Microseconds>(tpnow - tplast);
+  //update last time to current time
+  tplast = tpnow;
+  auto us = microseconds.count();
+  lastDelay = us;
+}
+
+double EMANE::Models::TDMA::BasicQueueManager::getLastDelay()
+{
+  return lastDelay;
 }

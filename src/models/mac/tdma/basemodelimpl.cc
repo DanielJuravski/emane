@@ -45,6 +45,9 @@
 #include "emane/controls/receivepropertiescontrolmessageformatter.h"
 #include "emane/controls/timestampcontrolmessage.h"
 #include "emane/controls/transmittercontrolmessage.h"
+#include "emane/controls/flowcontrolcontrolmessage.h"
+#include "emane/controls/r2riselfmetriccontrolmessage.h"
+
 
 #include "txslotinfosformatter.h"
 #include "basemodelmessage.h"
@@ -79,7 +82,9 @@ Implementation(NEMId id,
   frequencies_{},
   u64BandwidthHz_{},
   packetStatusPublisher_{},
-  neighborMetricManager_{id},
+  neighborMetricManager_(id),
+  queueMetricManager_(id),
+  radioMetricTimedEventId_{},
   receiveManager_{id,
       pRadioModel,
       &pPlatformServiceProvider->logService(),
@@ -172,6 +177,13 @@ EMANE::Models::TDMA::BaseModel::Implementation::initialize(Registrar & registrar
                                          0.1f,
                                          60.0f);
 
+  configRegistrar.registerNumeric<bool>("radiometricenable",
+                                        ConfigurationProperties::DEFAULT,
+                                        {false},
+                                        "Defines if radio metrics will be repoted up via the Radio to Router interface",
+                                        " (R2RI).");
+
+
   auto & statisticRegistrar = registrar.statisticRegistrar();
 
   packetStatusPublisher_.registerStatistics(statisticRegistrar);
@@ -187,6 +199,8 @@ EMANE::Models::TDMA::BaseModel::Implementation::initialize(Registrar & registrar
   pQueueManager_->initialize(registrar);
 
   pScheduler_->initialize(registrar);
+
+  downstreamQueue_.registerStatistics(statisticRegistrar);
 }
 
 
@@ -301,6 +315,18 @@ EMANE::Models::TDMA::BaseModel::Implementation::configure(const ConfigurationUpd
                                   item.first.c_str(),
                                   std::chrono::duration_cast<DoubleSeconds>(neighborMetricDeleteTimeMicroseconds).count());
         }
+      else if(item.first == "radiometricenable")
+        {
+          bRadioMetricEnable_ = item.second[0].asBool();
+
+          LOGGER_STANDARD_LOGGING(pPlatformService_->logService(),
+                                  INFO_LEVEL,
+                                  "MACI %03hu TDMA::BaseModel::%s: %s = %s",
+                                  id_,
+                                  __func__,
+                                  item.first.c_str(),
+                                  bRadioMetricEnable_ ? "on" : "off");
+        }
       else if(item.first == "neighbormetricupdateinterval")
         {
           neighborMetricUpdateInterval_ =
@@ -350,6 +376,9 @@ EMANE::Models::TDMA::BaseModel::Implementation::start()
   pQueueManager_->start();
 
   pScheduler_->start();
+
+  //add downstream queue to be tracked
+  queueMetricManager_.addQueueMetric(0, downstreamQueue_.getMaxCapacity());
 }
 
 
@@ -380,11 +409,33 @@ EMANE::Models::TDMA::BaseModel::Implementation::postStart()
                               __func__);
     }
 
-  pPlatformService_->timerService().
-    schedule(std::bind(&NeighborMetricManager::updateNeighborStatus,
-                       &neighborMetricManager_),
-             Clock::now() + neighborMetricUpdateInterval_,
-             neighborMetricUpdateInterval_);
+  radioMetricTimedEventId_ = 
+  pPlatformService_->timerService().schedule([this](const TimePoint &, const TimePoint &, const TimePoint &)
+          {
+            if(!bRadioMetricEnable_)
+              {
+                neighborMetricManager_.updateNeighborStatus();
+              }
+            else
+              {
+                ControlMessages msgs{
+                  Controls::R2RISelfMetricControlMessage::create(pendingTxSlotInfo_.u64DataRatebps_,
+                                                                pendingTxSlotInfo_.u64DataRatebps_,
+                                                                neighborMetricUpdateInterval_),
+                  Controls::R2RINeighborMetricControlMessage::create(neighborMetricManager_.getNeighborMetrics()),
+                  Controls::R2RIQueueMetricControlMessage::create(queueMetricManager_.getQueueMetrics())};
+                
+                pRadioModel_->sendUpstreamControl(msgs);
+              }
+            },
+            Clock::now() + neighborMetricUpdateInterval_,
+            neighborMetricUpdateInterval_);
+  LOGGER_STANDARD_LOGGING(pPlatformService_->logService(),
+                          INFO_LEVEL,
+                          "MACI %03hu TDMA::BaseModel::%s added radio metric timed eventID %zu",
+                          id_,
+                          __func__,
+                          radioMetricTimedEventId_);
 }
 
 
@@ -849,6 +900,17 @@ void EMANE::Models::TDMA::BaseModel::Implementation::processDownstreamControl(co
 void EMANE::Models::TDMA::BaseModel::Implementation::processDownstreamPacket(DownstreamPacket & pkt,
                                                                              const ControlMessages &)
 {
+
+  long lDelay = static_cast<long>(pQueueManager_->getQsDelay());
+  std::chrono::microseconds usDelay(lDelay);
+
+  //update queueMetricManager_ with the last delay latency
+  queueMetricManager_.updateQueueMetric(0,
+                                        downstreamQueue_.getMaxCapacity(),
+                                        downstreamQueue_.getCurrentDepth(),
+                                        downstreamQueue_.getNumDiscards(true),
+                                        usDelay);
+
   LOGGER_STANDARD_LOGGING(pPlatformService_->logService(),
                           DEBUG_LEVEL,
                           "MACI %03hu TDMA::BaseModel::%s",
